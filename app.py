@@ -197,6 +197,8 @@ def init_state():
         "embed_thumbnail": True,
         "parse_artist_title": True,
         "album_from_playlist": True,
+        "cookies_content": None,   # text of a Netscape cookies.txt file
+        "cookies_name": None,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -257,15 +259,59 @@ def estimate_size_mb(duration_s: int, kbps: int) -> float:
     return max(0.0, (kbps * 1000 * max(0, duration_s)) / 8 / (1024 * 1024))
 
 
+def _common_network_opts(cookies_path: str | None = None) -> dict:
+    """Options that make yt-dlp more likely to succeed from a cloud IP."""
+    opts = {
+        # A real-browser UA helps with YouTube bot detection.
+        "http_headers": {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/122.0.0.0 Safari/537.36"
+            ),
+            "Accept-Language": "en-US,en;q=0.9",
+        },
+        # Prefer the Android + web clients — Android often bypasses PO-token checks.
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android", "web"],
+            }
+        },
+    }
+    if cookies_path:
+        opts["cookiefile"] = cookies_path
+    return opts
+
+
+def _write_cookies_tempfile() -> str | None:
+    """If the user uploaded a cookies.txt, write it to a temp file and return the path."""
+    content = st.session_state.get("cookies_content")
+    if not content:
+        return None
+    fd, path = tempfile.mkstemp(prefix="yt_cookies_", suffix=".txt")
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(content)
+    return path
+
+
 def fetch_playlist(url: str):
+    cookies_path = _write_cookies_tempfile()
     ydl_opts = {
         "quiet": True,
         "no_warnings": True,
         "extract_flat": True,
         "skip_download": True,
+        **_common_network_opts(cookies_path),
     }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=False)
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+    finally:
+        if cookies_path and os.path.exists(cookies_path):
+            try:
+                os.remove(cookies_path)
+            except OSError:
+                pass
 
     entries = []
     for idx, entry in enumerate(info.get("entries", []) or [], start=1):
@@ -444,6 +490,7 @@ def build_zip_from_selection(
     else:
         out_template = "%(title)s.%(ext)s"
 
+    cookies_path = _write_cookies_tempfile()
     ydl_opts = {
         "format": "bestaudio/best",
         "quiet": True,
@@ -453,44 +500,101 @@ def build_zip_from_selection(
         "postprocessors": postprocessors,
         "progress_hooks": [progress_hook],
         "noplaylist": True,
-        "ignoreerrors": True,
-        "retries": 3,
-        "fragment_retries": 3,
+        # IMPORTANT: don't swallow errors silently — we want to show them.
+        "ignoreerrors": False,
+        "retries": 5,
+        "fragment_retries": 5,
         # Needed for EmbedThumbnail — fetch the thumbnail alongside the audio.
         "writethumbnail": bool(embed_thumbnail and supports_thumbnail),
+        **_common_network_opts(cookies_path),
     }
 
     results_log = []
+    errors = []  # (title, error_message)
     try:
         status.info("Starting download...")
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             for entry in selected_entries:
                 try:
                     ydl.download([entry["url"]])
-                    results_log.append({"title": entry["title"], "status": "ok", "ts": datetime.now().strftime("%H:%M:%S")})
+                    results_log.append({
+                        "title": entry["title"], "status": "ok",
+                        "ts": datetime.now().strftime("%H:%M:%S"),
+                    })
                 except Exception as exc:
-                    results_log.append({"title": entry["title"], "status": f"error: {exc}", "ts": datetime.now().strftime("%H:%M:%S")})
+                    msg = str(exc)
+                    errors.append((entry["title"], msg))
+                    results_log.append({
+                        "title": entry["title"], "status": f"error: {msg}",
+                        "ts": datetime.now().strftime("%H:%M:%S"),
+                    })
+                    # Surface the failure live so the user sees what happened.
+                    st.warning(f"❌ **{entry['title']}** — {msg[:220]}")
+
+        # What actually landed on disk?
+        audio_exts = (".mp3", ".m4a", ".opus", ".flac", ".wav")
+        files = [f for f in sorted(os.listdir(audio_dir)) if f.lower().endswith(audio_exts)]
+
+        if not files:
+            # No audio at all — give the user a useful diagnosis.
+            hint = _diagnose_failure(errors)
+            raise RuntimeError(
+                f"No files were downloaded ({len(errors)} error(s)).\n\n{hint}"
+            )
 
         zip_name = f"{sanitize_name(playlist_title)}.zip"
         zip_path = os.path.join(root_tmp, zip_name)
 
         status.info("Packaging ZIP...")
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED, compresslevel=5) as zipf:
-            for file_name in sorted(os.listdir(audio_dir)):
-                lower = file_name.lower()
-                if any(lower.endswith(ext) for ext in (".mp3", ".m4a", ".opus", ".flac", ".wav")):
-                    source_path = os.path.join(audio_dir, file_name)
-                    zipf.write(source_path, arcname=file_name)
+            for file_name in files:
+                source_path = os.path.join(audio_dir, file_name)
+                zipf.write(source_path, arcname=file_name)
 
         with open(zip_path, "rb") as f:
             zip_data = f.read()
 
         progress.progress(1.0)
-        status.success("Done. Your ZIP is ready below.")
+        if errors:
+            status.warning(f"Done — {len(files)} ok, {len(errors)} failed. ZIP is ready below.")
+        else:
+            status.success(f"Done — {len(files)} track(s) packaged. ZIP is ready below.")
         st.session_state.download_log = results_log + st.session_state.download_log
         return zip_name, zip_data
     finally:
         shutil.rmtree(root_tmp, ignore_errors=True)
+        if cookies_path and os.path.exists(cookies_path):
+            try:
+                os.remove(cookies_path)
+            except OSError:
+                pass
+
+
+def _diagnose_failure(errors: list[tuple[str, str]]) -> str:
+    """Turn raw yt-dlp error text into actionable guidance."""
+    if not errors:
+        return "Unknown failure — check the Streamlit logs."
+    joined = " | ".join(e[1] for e in errors).lower()
+    if "sign in to confirm" in joined or "not a bot" in joined or "cookies" in joined:
+        return (
+            "YouTube is blocking the Streamlit Cloud server with a **bot check**. "
+            "Upload a `cookies.txt` exported from your logged-in browser in the "
+            "sidebar (Tags & Cover → Cookies) and try again."
+        )
+
+    if "http error 403" in joined or "forbidden" in joined:
+        return (
+            "YouTube returned **HTTP 403**. The cloud IP is throttled or flagged. "
+            "Upload a `cookies.txt` from your browser in the sidebar to authenticate."
+        )
+    if "video unavailable" in joined or "private video" in joined or "members-only" in joined:
+        return "Some videos are private, region-locked, or members-only."
+    if "ffmpeg" in joined:
+        return (
+            "FFmpeg error. On Streamlit Cloud, make sure `packages.txt` contains "
+            "`ffmpeg` and reboot the app."
+        )
+    return f"First error was: {errors[0][1][:300]}"
 
 
 # ---------------------------------------------------------------------------
@@ -556,6 +660,42 @@ def render_sidebar():
             st.session_state.embed_metadata or st.session_state.embed_thumbnail
         ):
             st.caption("⚠️ WAV has limited/no support for tags and cover art.")
+
+        st.markdown("---")
+        st.markdown("### 🔑 Cookies (for cloud hosting)")
+        st.caption(
+            "If you're running this on Streamlit Cloud / a VPS and YouTube says "
+            "\"sign in to confirm you're not a bot\", upload a `cookies.txt` "
+            "exported from your **logged-in** browser."
+        )
+        uploaded = st.file_uploader(
+            "cookies.txt (Netscape format)",
+            type=["txt"],
+            key="cookies_upload",
+            label_visibility="collapsed",
+        )
+        if uploaded is not None:
+            try:
+                st.session_state.cookies_content = uploaded.read().decode("utf-8", errors="replace")
+                st.session_state.cookies_name = uploaded.name
+            except Exception as exc:
+                st.error(f"Could not read cookies file: {exc}")
+        if st.session_state.cookies_content:
+            c1, c2 = st.columns([3, 1])
+            c1.success(f"✓ Using `{st.session_state.cookies_name or 'cookies.txt'}`")
+            if c2.button("Clear", key="clear_cookies"):
+                st.session_state.cookies_content = None
+                st.session_state.cookies_name = None
+                st.rerun()
+        with st.expander("How to export cookies.txt"):
+            st.markdown(
+                "1. Install the **Get cookies.txt LOCALLY** browser extension "
+                "([Chrome](https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc) / "
+                "[Firefox](https://addons.mozilla.org/firefox/addon/cookies-txt/)).\n"
+                "2. Open **youtube.com** while logged in.\n"
+                "3. Click the extension → **Export** → save `cookies.txt`.\n"
+                "4. Upload it here. Cookies stay in this session only."
+            )
 
         st.markdown("---")
         st.markdown("### 🩺 System")
