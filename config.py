@@ -4,7 +4,7 @@ Modify these settings to customize the application behavior
 """
 
 # Audio quality settings
-AUDIO_QUALITY = '192'  # kbps (128, 192, 256, 320)
+AUDIO_QUALITY = '320'  # kbps (128, 192, 256, 320)
 AUDIO_FORMAT = 'mp3'   # mp3, m4a, wav, flac
 
 # Download settings

@@ -1,0 +1,435 @@
+<!-- ═══════════════════════════════════════════
+     PERFUME LIST COMPONENT — paste in Elementor HTML widget
+     ═══════════════════════════════════════════ -->
+
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Montserrat:wght@200;300;400&display=swap" rel="stylesheet">
+
+<style>
+  .pfc-wrap {
+    --gold: #c9a96e;
+    --gold-light: #e8d5a3;
+    --dark-2: #1a1714;
+    --cream: #f5f0e8;
+    --text-muted: #8a7d6b;
+    font-family: 'Montserrat', sans-serif;
+  }
+
+  /* ── List ── */
+  .pfc-list {
+    max-width: 720px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .pfc-item {
+    display: flex;
+    align-items: center;
+    gap: 28px;
+    padding: 28px 32px;
+    border-bottom: 1px solid rgba(201,169,110,0.15);
+    cursor: pointer;
+    transition: background 0.35s ease;
+    position: relative;
+    overflow: hidden;
+  }
+  .pfc-item:first-child { border-top: 1px solid rgba(201,169,110,0.15); }
+
+  .pfc-item::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0;
+    width: 3px; height: 100%;
+    background: var(--gold);
+    transform: scaleY(0);
+    transition: transform 0.35s ease;
+    transform-origin: bottom;
+  }
+  .pfc-item:hover { background: rgba(201,169,110,0.05); }
+  .pfc-item:hover::before { transform: scaleY(1); }
+
+  .pfc-thumb {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+    border: 1px solid rgba(201,169,110,0.35);
+    transition: border-color 0.3s, transform 0.3s, filter 0.3s;
+    filter: sepia(20%) brightness(0.9);
+  }
+  .pfc-item:hover .pfc-thumb {
+    border-color: var(--gold);
+    transform: scale(1.05);
+    filter: sepia(0%) brightness(1);
+  }
+
+  .pfc-meta { flex: 1; min-width: 0; }
+  .pfc-num {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 11px;
+    font-weight: 300;
+    letter-spacing: 4px;
+    color: var(--gold);
+    margin-bottom: 4px;
+    opacity: 0.7;
+  }
+  .pfc-name {
+    font-family: 'Cormorant Garamond', serif;
+    font-weight: 400;
+    font-size: 22px;
+    color: var(--cream);
+    letter-spacing: 1px;
+    margin: 0 0 6px;
+    transition: color 0.3s;
+  }
+  .pfc-item:hover .pfc-name { color: var(--gold-light); }
+
+  .pfc-preview {
+    font-size: 11px;
+    font-weight: 300;
+    color: var(--text-muted);
+    letter-spacing: 1px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .pfc-arrow {
+    font-size: 18px;
+    color: var(--gold);
+    opacity: 0;
+    transform: translateX(-8px);
+    transition: opacity 0.3s, transform 0.3s;
+    flex-shrink: 0;
+  }
+  .pfc-item:hover .pfc-arrow { opacity: 1; transform: translateX(0); }
+
+  /* ── Modal ── */
+  .pfc-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.85);
+    z-index: 9999;
+    overflow-y: auto;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  .pfc-overlay.pfc-open { display: block; animation: pfcFadeIn 0.3s ease; }
+  @keyframes pfcFadeIn { from { opacity:0; } to { opacity:1; } }
+
+  .pfc-modal-box {
+    background: var(--dark-2);
+    border: 1px solid rgba(201,169,110,0.2);
+    width: 90%;
+    max-width: 560px;
+    margin: 5% auto 40px;
+    border-radius: 4px;
+    position: relative;
+    overflow: hidden;
+    animation: pfcSlideUp 0.4s cubic-bezier(0.16,1,0.3,1);
+  }
+  @keyframes pfcSlideUp {
+    from { opacity:0; transform: translateY(30px); }
+    to   { opacity:1; transform: translateY(0); }
+  }
+
+  .pfc-close {
+    position: absolute;
+    top: 20px; right: 20px;
+    background: none;
+    border: 1px solid rgba(201,169,110,0.3);
+    color: var(--gold);
+    width: 34px; height: 34px;
+    border-radius: 50%;
+    font-size: 15px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.25s, border-color 0.25s;
+    z-index: 2;
+    font-family: sans-serif;
+  }
+  .pfc-close:hover { background: rgba(201,169,110,0.15); border-color: var(--gold); }
+
+  .pfc-img-wrap {
+    position: relative;
+    height: 260px;
+    overflow: hidden;
+  }
+  .pfc-img-wrap::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to bottom, transparent 40%, var(--dark-2) 100%);
+  }
+  .pfc-modal-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    filter: sepia(15%) brightness(0.75);
+  }
+
+  .pfc-modal-body { padding: 32px 36px 40px; }
+
+  .pfc-modal-eyebrow {
+    font-size: 10px;
+    font-weight: 300;
+    letter-spacing: 5px;
+    text-transform: uppercase;
+    color: var(--gold);
+    margin-bottom: 10px;
+  }
+  .pfc-modal-title {
+    font-family: 'Cormorant Garamond', serif;
+    font-weight: 300;
+    font-size: 38px;
+    color: var(--cream);
+    letter-spacing: 2px;
+    margin: 0 0 28px;
+    line-height: 1;
+  }
+
+  .pfc-notes { display: flex; flex-direction: column; gap: 20px; }
+
+  .pfc-note-label {
+    font-size: 9px;
+    font-weight: 400;
+    letter-spacing: 5px;
+    text-transform: uppercase;
+    color: var(--gold);
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .pfc-note-label::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: rgba(201,169,110,0.2);
+  }
+  .pfc-note-val {
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 16px;
+    font-weight: 300;
+    color: rgba(245,240,232,0.75);
+    letter-spacing: 0.5px;
+    line-height: 1.7;
+    font-style: italic;
+  }
+
+  /* ── Mobile ── */
+  @media(max-width: 520px) {
+    .pfc-item { padding: 20px 16px; gap: 16px; }
+    .pfc-thumb { width: 56px; height: 56px; }
+    .pfc-name { font-size: 18px; }
+    .pfc-modal-body { padding: 24px 20px 32px; }
+    .pfc-modal-title { font-size: 30px; }
+  }
+</style>
+
+<!-- ── Component root ── -->
+<div class="pfc-wrap">
+
+  <div class="pfc-list">
+
+    <div class="pfc-item"
+         data-title="Shamann"
+         data-tete="Accords de Bouleau et Ciste"
+         data-coeur="Gingembre épicé, Violette poudrée, Cuir noble"
+         data-fond="Patchouli profond, Mousse boisée, Vanille enveloppante, Labdanum ambré"
+         data-image="https://intemporel.tn/wp-content/uploads/2026/03/Shamann.png">
+      <img class="pfc-thumb" src="https://static.vecteezy.com/system/resources/thumbnails/023/009/485/small_2x/abstract-animal-owl-portrait-with-colorful-double-exposure-paint-with-generative-ai-free-photo.jpeg" alt="Shamann">
+      <div class="pfc-meta">
+        <div class="pfc-num">01</div>
+        <h3 class="pfc-name">Shamann</h3>
+        <div class="pfc-preview">Bouleau · Gingembre · Patchouli</div>
+      </div>
+      <span class="pfc-arrow">→</span>
+    </div>
+
+    <div class="pfc-item"
+         data-title="Néroli"
+         data-tete="Orange solaire, Petitgrain élégant"
+         data-coeur="Freesia lumineux, Jasmin raffiné"
+         data-fond="Fleur d'oranger enveloppante, Rose délicate"
+         data-image="https://static.vecteezy.com/system/resources/thumbnails/023/009/485/small_2x/abstract-animal-owl-portrait-with-colorful-double-exposure-paint-with-generative-ai-free-photo.jpeg">
+      <img class="pfc-thumb" src="https://static.vecteezy.com/system/resources/thumbnails/023/009/485/small_2x/abstract-animal-owl-portrait-with-colorful-double-exposure-paint-with-generative-ai-free-photo.jpeg" alt="Néroli">
+      <div class="pfc-meta">
+        <div class="pfc-num">02</div>
+        <h3 class="pfc-name">Néroli</h3>
+        <div class="pfc-preview">Orange · Freesia · Fleur d'oranger</div>
+      </div>
+      <span class="pfc-arrow">→</span>
+    </div>
+
+    <div class="pfc-item"
+         data-title="Zen Spirit"
+         data-tete="Bergamote lumineuse, Agrumes délicats"
+         data-coeur="Rose raffinée, Fleur d'oranger solaire"
+         data-fond="Vanille enveloppante, Ambre gris profond"
+         data-image="https://static.vecteezy.com/system/resources/thumbnails/023/009/485/small_2x/abstract-animal-owl-portrait-with-colorful-double-exposure-paint-with-generative-ai-free-photo.jpeg">
+      <img class="pfc-thumb" src="https://static.vecteezy.com/system/resources/thumbnails/023/009/485/small_2x/abstract-animal-owl-portrait-with-colorful-double-exposure-paint-with-generative-ai-free-photo.jpeg" alt="Zen Spirit">
+      <div class="pfc-meta">
+        <div class="pfc-num">03</div>
+        <h3 class="pfc-name">Zen Spirit</h3>
+        <div class="pfc-preview">Bergamote · Rose · Ambre gris</div>
+      </div>
+      <span class="pfc-arrow">→</span>
+    </div>
+
+    <div class="pfc-item"
+         data-title="Jasmin Fell"
+         data-tete="Freesia aérien, Fleur d'oranger éclatante"
+         data-coeur="Jasmin intense, Tubéreuse sensuelle, Pivoine délicate"
+         data-fond="Pêche douce, Accord de fleurs blanches"
+         data-image="https://static.vecteezy.com/system/resources/thumbnails/023/009/485/small_2x/abstract-animal-owl-portrait-with-colorful-double-exposure-paint-with-generative-ai-free-photo.jpeg">
+      <img class="pfc-thumb" src="https://static.vecteezy.com/system/resources/thumbnails/023/009/485/small_2x/abstract-animal-owl-portrait-with-colorful-double-exposure-paint-with-generative-ai-free-photo.jpeg" alt="Jasmin Fell">
+      <div class="pfc-meta">
+        <div class="pfc-num">04</div>
+        <h3 class="pfc-name">Jasmin Fell</h3>
+        <div class="pfc-preview">Freesia · Jasmin · Tubéreuse</div>
+      </div>
+      <span class="pfc-arrow">→</span>
+    </div>
+
+    <div class="pfc-item"
+         data-title="Jasmin Noir"
+         data-tete="Poire délicate, Poivre noir subtil"
+         data-coeur="Jasmin noir intense, Rose veloutée, Ylang-ylang lumineux"
+         data-fond="Vanille enveloppante, Patchouli profond, Bois ambrés"
+         data-image="https://static.vecteezy.com/system/resources/thumbnails/023/009/485/small_2x/abstract-animal-owl-portrait-with-colorful-double-exposure-paint-with-generative-ai-free-photo.jpeg">
+      <img class="pfc-thumb" src="https://static.vecteezy.com/system/resources/thumbnails/023/009/485/small_2x/abstract-animal-owl-portrait-with-colorful-double-exposure-paint-with-generative-ai-free-photo.jpeg" alt="Jasmin Noir">
+      <div class="pfc-meta">
+        <div class="pfc-num">05</div>
+        <h3 class="pfc-name">Jasmin Noir</h3>
+        <div class="pfc-preview">Poivre noir · Jasmin · Patchouli</div>
+      </div>
+      <span class="pfc-arrow">→</span>
+    </div>
+
+    <div class="pfc-item"
+         data-title="Scent Trip"
+         data-tete="Bergamote solaire, Mandarine fraîche, Poivre rose subtil"
+         data-coeur="Fleur d'oranger lumineuse, Jasmin délicat, Thé blanc"
+         data-fond="Musc enveloppant, Cèdre élégant, Ambre profond"
+         data-image="https://static.vecteezy.com/system/resources/thumbnails/023/009/485/small_2x/abstract-animal-owl-portrait-with-colorful-double-exposure-paint-with-generative-ai-free-photo.jpeg">
+      <img class="pfc-thumb" src="https://static.vecteezy.com/system/resources/thumbnails/023/009/485/small_2x/abstract-animal-owl-portrait-with-colorful-double-exposure-paint-with-generative-ai-free-photo.jpeg" alt="Scent Trip">
+      <div class="pfc-meta">
+        <div class="pfc-num">06</div>
+        <h3 class="pfc-name">Scent Trip</h3>
+        <div class="pfc-preview">Mandarine · Thé blanc · Cèdre</div>
+      </div>
+      <span class="pfc-arrow">→</span>
+    </div>
+
+    <div class="pfc-item"
+         data-title="Wild Narcissus"
+         data-tete="Citron lumineux, Notes vertes fraîches"
+         data-coeur="Narcisse éclatant, Jasmin délicat, Muguet aérien"
+         data-fond="Bois de santal crémeux, Musc doux, Mousse végétale"
+         data-image="https://static.vecteezy.com/system/resources/thumbnails/023/009/485/small_2x/abstract-animal-owl-portrait-with-colorful-double-exposure-paint-with-generative-ai-free-photo.jpeg">
+      <img class="pfc-thumb" src="https://static.vecteezy.com/system/resources/thumbnails/023/009/485/small_2x/abstract-animal-owl-portrait-with-colorful-double-exposure-paint-with-generative-ai-free-photo.jpeg" alt="Wild Narcissus">
+      <div class="pfc-meta">
+        <div class="pfc-num">07</div>
+        <h3 class="pfc-name">Wild Narcissus</h3>
+        <div class="pfc-preview">Citron · Narcisse · Santal</div>
+      </div>
+      <span class="pfc-arrow">→</span>
+    </div>
+
+    <div class="pfc-item"
+         data-title="Mystic Orient"
+         data-tete="Safran précieux, Cardamome épicée"
+         data-coeur="Rose de Damas opulente, Encens mystique"
+         data-fond="Oud profond, Ambre chaud, Vanille enveloppante"
+         data-image="https://static.vecteezy.com/system/resources/thumbnails/023/009/485/small_2x/abstract-animal-owl-portrait-with-colorful-double-exposure-paint-with-generative-ai-free-photo.jpeg">
+      <img class="pfc-thumb" src="https://static.vecteezy.com/system/resources/thumbnails/023/009/485/small_2x/abstract-animal-owl-portrait-with-colorful-double-exposure-paint-with-generative-ai-free-photo.jpeg" alt="Mystic Orient">
+      <div class="pfc-meta">
+        <div class="pfc-num">08</div>
+        <h3 class="pfc-name">Mystic Orient</h3>
+        <div class="pfc-preview">Safran · Rose de Damas · Oud</div>
+      </div>
+      <span class="pfc-arrow">→</span>
+    </div>
+
+    <div class="pfc-item"
+         data-title="Orchid Bloom"
+         data-tete="Pêche veloutée, Bergamote lumineuse"
+         data-coeur="Orchidée délicate, Freesia aérien, Jasmin soyeux"
+         data-fond="Vanille douce, Musc blanc, Bois tendres"
+         data-image="https://static.vecteezy.com/system/resources/thumbnails/023/009/485/small_2x/abstract-animal-owl-portrait-with-colorful-double-exposure-paint-with-generative-ai-free-photo.jpeg">
+      <img class="pfc-thumb" src="https://static.vecteezy.com/system/resources/thumbnails/023/009/485/small_2x/abstract-animal-owl-portrait-with-colorful-double-exposure-paint-with-generative-ai-free-photo.jpeg" alt="Orchid Bloom">
+      <div class="pfc-meta">
+        <div class="pfc-num">09</div>
+        <h3 class="pfc-name">Orchid Bloom</h3>
+        <div class="pfc-preview">Pêche · Orchidée · Musc blanc</div>
+      </div>
+      <span class="pfc-arrow">→</span>
+    </div>
+
+  </div>
+
+  <!-- Modal (appended inside component root, so CSS vars inherit) -->
+  <div class="pfc-overlay" id="pfcOverlay">
+    <div class="pfc-modal-box">
+      <button class="pfc-close" id="pfcClose">✕</button>
+      <div class="pfc-img-wrap">
+        <img class="pfc-modal-img" id="pfcImg" src="" alt="">
+      </div>
+      <div class="pfc-modal-body">
+        <div class="pfc-modal-eyebrow">Fiche Olfactive</div>
+        <h2 class="pfc-modal-title" id="pfcTitle"></h2>
+        <div class="pfc-notes">
+          <div>
+            <div class="pfc-note-label">En tête</div>
+            <div class="pfc-note-val" id="pfcTete"></div>
+          </div>
+          <div>
+            <div class="pfc-note-label">En cœur</div>
+            <div class="pfc-note-val" id="pfcCoeur"></div>
+          </div>
+          <div>
+            <div class="pfc-note-label">En fond</div>
+            <div class="pfc-note-val" id="pfcFond"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /.pfc-wrap -->
+
+<script>
+(function () {
+  var overlay  = document.getElementById('pfcOverlay');
+  var closeBtn = document.getElementById('pfcClose');
+
+  document.querySelectorAll('.pfc-item').forEach(function (item) {
+    item.addEventListener('click', function () {
+      document.getElementById('pfcTitle').textContent = item.dataset.title;
+      document.getElementById('pfcImg').src           = item.dataset.image;
+      document.getElementById('pfcImg').alt           = item.dataset.title;
+      document.getElementById('pfcTete').textContent  = item.dataset.tete;
+      document.getElementById('pfcCoeur').textContent = item.dataset.coeur;
+      document.getElementById('pfcFond').textContent  = item.dataset.fond;
+      overlay.classList.add('pfc-open');
+      document.body.style.overflow = 'hidden';
+    });
+  });
+
+  function closeModal() {
+    overlay.classList.remove('pfc-open');
+    document.body.style.overflow = '';
+  }
+
+  closeBtn.addEventListener('click', closeModal);
+  overlay.addEventListener('click', function (e) {
+    if (e.target === overlay) closeModal();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closeModal();
+  });
+})();
+</script>
