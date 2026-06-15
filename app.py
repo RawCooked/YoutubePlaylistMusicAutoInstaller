@@ -259,7 +259,10 @@ def estimate_size_mb(duration_s: int, kbps: int) -> float:
     return max(0.0, (kbps * 1000 * max(0, duration_s)) / 8 / (1024 * 1024))
 
 
-def _common_network_opts(cookies_path: str | None = None) -> dict:
+def _common_network_opts(
+    cookies_path: str | None = None,
+    player_clients: list[str] | None = None,
+) -> dict:
     """Options that make yt-dlp more likely to succeed from a cloud IP."""
     opts = {
         # A real-browser UA helps with YouTube bot detection.
@@ -271,16 +274,30 @@ def _common_network_opts(cookies_path: str | None = None) -> dict:
             ),
             "Accept-Language": "en-US,en;q=0.9",
         },
-        # Prefer the Android + web clients — Android often bypasses PO-token checks.
         "extractor_args": {
             "youtube": {
-                "player_client": ["android", "web"],
+                # iOS and tv_embedded often bypass checks that block `web`
+                # and (more recently) `android`. Try several in order.
+                "player_client": player_clients or ["ios", "mweb", "tv_embedded", "web"],
             }
         },
+        # Sleep between requests — helps avoid triggering rate-limit flags.
+        "sleep_interval_requests": 1,
+        "socket_timeout": 30,
     }
     if cookies_path:
         opts["cookiefile"] = cookies_path
     return opts
+
+
+# Fallback chain: we try each client set in order until one succeeds.
+PLAYER_CLIENT_FALLBACKS = [
+    ["ios"],
+    ["tv_embedded"],
+    ["mweb"],
+    ["android"],
+    ["web"],
+]
 
 
 def _write_cookies_tempfile() -> str | None:
@@ -296,16 +313,26 @@ def _write_cookies_tempfile() -> str | None:
 
 def fetch_playlist(url: str):
     cookies_path = _write_cookies_tempfile()
-    ydl_opts = {
-        "quiet": True,
-        "no_warnings": True,
-        "extract_flat": True,
-        "skip_download": True,
-        **_common_network_opts(cookies_path),
-    }
+    last_exc = None
+    info = None
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
+        for client_set in PLAYER_CLIENT_FALLBACKS:
+            ydl_opts = {
+                "quiet": True,
+                "no_warnings": True,
+                "extract_flat": True,
+                "skip_download": True,
+                **_common_network_opts(cookies_path, player_clients=client_set),
+            }
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(url, download=False)
+                break
+            except Exception as exc:
+                last_exc = exc
+                continue
+        if info is None:
+            raise last_exc if last_exc else RuntimeError("Could not fetch playlist.")
     finally:
         if cookies_path and os.path.exists(cookies_path):
             try:
@@ -491,45 +518,55 @@ def build_zip_from_selection(
         out_template = "%(title)s.%(ext)s"
 
     cookies_path = _write_cookies_tempfile()
-    ydl_opts = {
-        "format": "bestaudio/best",
-        "quiet": True,
-        "no_warnings": True,
-        "outtmpl": os.path.join(audio_dir, out_template),
-        "windowsfilenames": True,   # ensure the filename is valid on Windows
-        "postprocessors": postprocessors,
-        "progress_hooks": [progress_hook],
-        "noplaylist": True,
-        # IMPORTANT: don't swallow errors silently — we want to show them.
-        "ignoreerrors": False,
-        "retries": 5,
-        "fragment_retries": 5,
-        # Needed for EmbedThumbnail — fetch the thumbnail alongside the audio.
-        "writethumbnail": bool(embed_thumbnail and supports_thumbnail),
-        **_common_network_opts(cookies_path),
-    }
+
+    def make_opts(player_clients):
+        return {
+            "format": "bestaudio/best",
+            "quiet": True,
+            "no_warnings": True,
+            "outtmpl": os.path.join(audio_dir, out_template),
+            "windowsfilenames": True,
+            "postprocessors": postprocessors,
+            "progress_hooks": [progress_hook],
+            "noplaylist": True,
+            "ignoreerrors": False,
+            "retries": 5,
+            "fragment_retries": 5,
+            "writethumbnail": bool(embed_thumbnail and supports_thumbnail),
+            **_common_network_opts(cookies_path, player_clients=player_clients),
+        }
 
     results_log = []
     errors = []  # (title, error_message)
     try:
         status.info("Starting download...")
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            for entry in selected_entries:
+        for entry in selected_entries:
+            last_exc = None
+            ok = False
+            # Try each client configuration until one succeeds.
+            for client_set in PLAYER_CLIENT_FALLBACKS:
                 try:
-                    ydl.download([entry["url"]])
-                    results_log.append({
-                        "title": entry["title"], "status": "ok",
-                        "ts": datetime.now().strftime("%H:%M:%S"),
-                    })
+                    with yt_dlp.YoutubeDL(make_opts(client_set)) as ydl:
+                        ydl.download([entry["url"]])
+                    ok = True
+                    break
                 except Exception as exc:
-                    msg = str(exc)
-                    errors.append((entry["title"], msg))
-                    results_log.append({
-                        "title": entry["title"], "status": f"error: {msg}",
-                        "ts": datetime.now().strftime("%H:%M:%S"),
-                    })
-                    # Surface the failure live so the user sees what happened.
-                    st.warning(f"❌ **{entry['title']}** — {msg[:220]}")
+                    last_exc = exc
+                    continue
+
+            if ok:
+                results_log.append({
+                    "title": entry["title"], "status": "ok",
+                    "ts": datetime.now().strftime("%H:%M:%S"),
+                })
+            else:
+                msg = str(last_exc) if last_exc else "unknown error"
+                errors.append((entry["title"], msg))
+                results_log.append({
+                    "title": entry["title"], "status": f"error: {msg}",
+                    "ts": datetime.now().strftime("%H:%M:%S"),
+                })
+                st.warning(f"❌ **{entry['title']}** — {msg[:220]}")
 
         # What actually landed on disk?
         audio_exts = (".mp3", ".m4a", ".opus", ".flac", ".wav")
@@ -575,26 +612,48 @@ def _diagnose_failure(errors: list[tuple[str, str]]) -> str:
     if not errors:
         return "Unknown failure — check the Streamlit logs."
     joined = " | ".join(e[1] for e in errors).lower()
+
+    cloud = _running_on_streamlit_cloud()
+    cloud_note = (
+        "\n\n⚠️ **Running on a cloud host.** YouTube actively blocks Streamlit "
+        "Cloud's shared IP ranges. Even with cookies, results are unreliable. "
+        "**For consistent results, run this app locally** (`streamlit run app.py` "
+        "on your PC)."
+        if cloud else ""
+    )
+
     if "sign in to confirm" in joined or "not a bot" in joined or "cookies" in joined:
         return (
-            "YouTube is blocking the Streamlit Cloud server with a **bot check**. "
-            "Upload a `cookies.txt` exported from your logged-in browser in the "
-            "sidebar (Tags & Cover → Cookies) and try again."
+            "YouTube is returning a **bot check**. Upload a `cookies.txt` "
+            "exported from your logged-in browser in the sidebar and try again."
+            + cloud_note
         )
-
     if "http error 403" in joined or "forbidden" in joined:
         return (
-            "YouTube returned **HTTP 403**. The cloud IP is throttled or flagged. "
-            "Upload a `cookies.txt` from your browser in the sidebar to authenticate."
+            "YouTube returned **HTTP 403** — the server's IP is blocked/throttled. "
+            "Upload a `cookies.txt` from your browser in the sidebar." + cloud_note
         )
     if "video unavailable" in joined or "private video" in joined or "members-only" in joined:
-        return "Some videos are private, region-locked, or members-only."
+        return (
+            "Most videos came back as **\"Video unavailable\"**. If they play fine "
+            "in your own browser, YouTube is region-locking the server's IP — not "
+            "a problem with the video or the playlist." + cloud_note
+        )
     if "ffmpeg" in joined:
         return (
             "FFmpeg error. On Streamlit Cloud, make sure `packages.txt` contains "
             "`ffmpeg` and reboot the app."
         )
-    return f"First error was: {errors[0][1][:300]}"
+    return f"First error was: {errors[0][1][:300]}{cloud_note}"
+
+
+def _running_on_streamlit_cloud() -> bool:
+    """Heuristic: Streamlit Cloud sets /mount/src or HOSTNAME=streamlit."""
+    return (
+        os.path.exists("/mount/src")
+        or "streamlit" in (os.environ.get("HOSTNAME", "") or "").lower()
+        or os.environ.get("STREAMLIT_SERVER_HEADLESS", "") == "true"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -611,6 +670,14 @@ def render_hero():
         """,
         unsafe_allow_html=True,
     )
+    if _running_on_streamlit_cloud() and not st.session_state.get("cookies_content"):
+        st.info(
+            "☁️ **Running on a cloud host.** YouTube blocks datacenter IPs, so "
+            "downloads often fail with *\"Video unavailable\"* or *HTTP 403*. "
+            "Upload a `cookies.txt` in the sidebar, **or** run the app locally "
+            "(`streamlit run app.py`) for reliable results.",
+            icon="ℹ️",
+        )
 
 
 def render_sidebar():
