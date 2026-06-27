@@ -63,6 +63,54 @@ sudo yum install ffmpeg
 ffmpeg -version
 ```
 
+## ⚡ CLI Tool — `ytpl` (run from anywhere)
+
+Install once, use from any terminal:
+
+```bash
+# 1. Clone / open the project folder
+cd YoutubePlaylistMusicAutoInstaller
+
+# 2. Install as a global command (editable install)
+pip install -e .
+
+# 3. Use it anywhere
+ytpl "https://www.youtube.com/playlist?list=PL..."
+```
+
+Files are saved to `~/Music/<Playlist Name>/` by default.
+
+### CLI options
+
+```
+ytpl <url> [options]
+
+  -f, --format    mp3 m4a opus flac wav   (default: mp3)
+  -q, --quality   96 128 160 192 256 320  (default: 192 kbps)
+  -o, --output    parent directory        (default: ~/Music)
+  --no-metadata   skip ID3/MP4 tags
+  --no-thumbnail  skip cover art
+  --no-parse      skip artist detection from title
+  --cookies       path to cookies.txt (Netscape format)
+```
+
+### Examples
+
+```bash
+# Download playlist as MP3 192 kbps into ~/Music/
+ytpl "https://youtube.com/playlist?list=PL..."
+
+# FLAC, custom output folder
+ytpl "https://youtube.com/playlist?list=PL..." -f flac -o D:/Music
+
+# With cookies (needed on cloud/VPS or if YouTube blocks you)
+ytpl "https://youtube.com/playlist?list=PL..." --cookies ~/cookies.txt
+```
+
+---
+
+## 🌐 Web UI — Streamlit
+
 ## 🚀 Quick Installation
 
 ### Method 1: Automated Setup (Recommended)
